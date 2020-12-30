@@ -504,7 +504,7 @@ class DemoState(State):
 
 
 pyxel.init(240, 135, caption="Shooting Game")
-pyxel.load("./assets/pyxel_shooting.pyxres")
+pyxel.load("pyxel_shooting.pyxres")
 # g_scene = TitleState()  # pyxel.initより後ろに書く
 g_scene = GameState(100)  # pyxel.initより後ろに書く
 pyxel.run(lambda: g_scene.update(), lambda: g_scene.draw())

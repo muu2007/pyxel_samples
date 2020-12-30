@@ -70,7 +70,7 @@ class App:
 
 
 pyxel.init(256, 256, caption="倉庫番")
-pyxel.load("./assets/my_resource.pyxres")
+pyxel.load("my_resource.pyxres")
 App(0 if len(sys.argv) < 2 else int(sys.argv[1]))
 # def _main(screen, level: int = 0 if len(sys.argv) < 2 else int(sys.argv[1])):
 #     print('\033]2;倉庫番\007')  # Title
