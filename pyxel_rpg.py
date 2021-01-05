@@ -10,8 +10,8 @@ def arrowkeysp(values=(0, 1, 2, 3), poll=pyxel.btnp):  # 戻り値:押されて�
     return s[0] if s else None
 
 
-def btnpA(): return pyxel.btnp(pyxel.KEY_Z) or pyxel.btnp(pyxel.GAMEPAD_1_A)
-def btnpB(): return pyxel.btnp(pyxel.KEY_X) or pyxel.btnp(pyxel.GAMEPAD_1_B)
+def btnpA(): return pyxel.btnp(pyxel.GAMEPAD_1_A) or pyxel.btnp(pyxel.KEY_1) or pyxel.btnp(pyxel.KEY_KP_1) or pyxel.btnp(pyxel.KEY_Z)
+def btnpB(): return pyxel.btnp(pyxel.GAMEPAD_1_B) or pyxel.btnp(pyxel.KEY_2) or pyxel.btnp(pyxel.KEY_KP_2) or pyxel.btnp(pyxel.KEY_X)
 def blinker(): return pyxel.frame_count // 16 % 2  # 右、左、右、左、の変化用
 def chip(n): return n//1024, (n % 1024 % 32)*8, (n % 1024 // 32)*8
 
@@ -98,13 +98,15 @@ class SelectBox(State):  # ２段に並んだものでも簡潔に表現でき�
             self.state4indexes[0][1], self.state4indexes[-1][3] = None, None  # ２つなら ((None, None, None, 1), (None, 0, None, None)) ができる。
         else:
             self.update, self.draw = self.releaseback, lambda: None  # アイテムが０個のサブメニューSelectBoxを作ったとき、ここでreleasebackすると、元のコマンド後のreleasebackでそれも閉じでしまう。ので１フレームは動作させる苦肉の策。
-        self.cursor = "●"
+        self.cursor = "●"  # "→"
         self.sounds = {"OK": 1, "Cancel": 2, "Move": 0}
+    selectedItem = None  # サブメニューでも項目名を(後で)取れるように
     YesNoParameters = (-122, -84, ("はい", "いいえ"))  # ox oy に負の値を指定したときは右下を指定したものとして左上を計算で求める
 
     def update(self):
         if btnpA():
             pyxel.play(3, self.sounds["OK"])
+            SelectBox.selectedItem = self.texts[self.index]
             self.commands[self.index]()  # この中でg_stateを変更しても、次行も実行されるため、typeを見て動作を変える対策をした
             self.releaseback(True)  # g_stateを変更したが、効果があるのは次フレームから
         if btnpB():  # Bは何もせずにフォーカスを返す
@@ -125,7 +127,7 @@ class SelectBox(State):  # ２段に並んだものでも簡潔に表現でき�
 
 class TextBox(State):
     def __init__(self,  text, text2=""):
-        self.text, self.text2 = text.translate(ToZenkaku) if text else "", text2
+        self.text, self.text2 = text.translate(ToZenkaku) if type(text) is str else "", text2
         self.update = self._update().__next__
         self.speed, self.sounds = TextBox.Speed, {"Step": 2, "Go": 1}
         self.sy = 0
@@ -141,6 +143,8 @@ class TextBox(State):
             if "　" == c:  # スペースはウエイトなし
                 self.text2 += c
                 continue
+            if "」" == c:
+                ret_wz_tab = "\n"  # fallthrough
             if "🔻" == c:  # クリック待ち
                 self.speed = TextBox.Speed
                 yield TextBox.V()
@@ -200,7 +204,7 @@ class Field(State):
         self.textbox = None
         self.original_state = None  # fieldより下はないはずなので切っておく
         pyxel.playm(self.Music, loop=True)
-        self.traps = ((12, 2, lambda: Field.Blackout(lambda: Castle(22, 15))), )  # 街、階段とか # lambdaで「あとで実行」をここで書ける # Battleを書く場合があるかもしれないのでクラス変数にしない
+        self.traps = ((12, 2, lambda: Blackout(lambda: Castle(22, 15))), )  # 街、階段とか # lambdaで「あとで実行」をここで書ける # Battleを書く場合があるかもしれないのでクラス変数にしない
     MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 0, 0, 0, 256, 256, 12
     NPCs = []  # NPC 扉、宝箱など。２度作られないようにクラス変数にしておく
     Music = 1  # 戦闘シーンから戻るときに音楽を戻す
@@ -216,17 +220,20 @@ class Field(State):
             [npc.update() for npc in self.NPCs]
             if btnpA() or btnpB():
                 dx, dy = (-1, 0, 1, 0)[self.direction], (0, -1, 0, 1)[self.direction]
-                if [npc.act() for npc in self.NPCs if self.x+dx == npc.x and self.y+dy == npc.y]:  # 話しかける、宝箱を開けるなど
+                if s := [npc for npc in self.NPCs if self.x+dx == npc.x and self.y+dy == npc.y]:  # 話しかける、宝箱を開けるなど
+                    for it in s[0]._act():
+                        self.textbox = TextBox(it, self.textbox.text2 if self.textbox else "")
+                        yield
+                    self.textbox = None
                     pass
                 else:  # 話す相手がいなければ、コマンドをだす
                     command = None
-                    def yakusou(): nonlocal command; command = self._yakusou
+                    def other(): nonlocal command; command = True
                     spells = []
-                    spellcommands = None
                     items = [i for i in g_player.items if i in ("やくそう")]  # フィールドで使えるものだけ
-                    itemcommands = [{"やくそう": yakusou}[i]for i in items]
-                    yield SelectBox(80, 8, ("じゅもん", "どうぐ"), (lambda: SelectBox(84, 4, spells, spellcommands), lambda: SelectBox(84, 4, items, itemcommands)))
+                    yield SelectBox(-120, 8, ("じゅもん", "どうぐ"), (lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items))))
                     if command:
+                        command = {"やくそう": self._yakusou}[SelectBox.selectedItem]
                         for it in command():  # コルーチン(ジェネレーター)の連続呼び出し
                             self.textbox = TextBox(it, self.textbox.text2 if self.textbox else "")
                             yield
@@ -266,38 +273,41 @@ class Field(State):
             self.textbox.draw_just()
         # pyxel.text(0, 0, f"{self.x: 3}: {self.y: 3}", 7)
 
-    def encont_monster(self, x, y): return Slime() if 5 == random.randrange(15) else None
+    def encont_monster(self, x, y): return (Slime(), Slime(), Rabbit(), Pi(), Theta(), Root())[random.randrange(6)] if 5 == random.randrange(15) else None
 
     def _yakusou(self):
         yield f"{g_player.name}はやくそうをつかった！"
         pyxel.play(3, 17)
-        for _ in range(8):  # SE待ち
+        while pyxel.play_pos(3) != -1:
             yield ""
         v = 5 + random.randrange(5)
         g_player.hp = min(g_player.hp + v, g_player.maxhp)
         g_player.items.remove("やくそう")
         yield f"\n{g_player.name}のＨＰは{v}かいふくした！🔻"
 
-    class Blackout(State):
-        def __init__(self, command):
-            self.command = command
-            self.update = self._update().__next__
-            pyxel.stop()
-            pyxel.play(3, 9)
 
-        def _update(self):
-            for _ in range(20):
-                yield
-            yield self.command()
+class Blackout(State):
+    def __init__(self, command):
+        self.command = command
+        self.update = self._update().__next__
+        self.sound = 9
+        pyxel.stop()
 
-        def draw(self): pyxel.cls(1)
+    def _update(self):
+        pyxel.play(3, self.sound)
+        while pyxel.play_pos(3) != -1:
+            yield
+        yield self.command()
+        yield self.releaseback()
+
+    def draw(self): pyxel.cls(1)
 
 
 class NPC:  # ベースクラスを王様に使ってる……宝箱などにも使うのでしゃべるをベースにできない
-    def __init__(self, x, y, chip, text): self.x, self.y, self.chip, self.text = x, y, chip, text
+    def __init__(self, x, y, chip, text_or_callable): self.x, self.y, self.chip, self.text_or_callable = x, y, chip, text_or_callable
     def update(self): pass
     def draw(self, ox, oy): pyxel.blt(ox+self.x*8, oy+self.y*8-1, *chip(self.chip+blinker()), 8, 8, 0)  # 人物はy-1して少し重ねる
-    def act(self): TextBox(self.text) if not callable(self.text) else self.text()  # シンプルなテキストだけなら文字列を、複雑なものはstateにまとめて(例:Shopping)
+    def _act(self): yield self.text_or_callable if not callable(self.text_or_callable) else self.text_or_callable()  # シンプルなテキストだけなら文字列を、複雑なものはstateにまとめて(例:Shopping)
 
 
 class RandomWalker(NPC):  # 人物のベース
@@ -308,7 +318,7 @@ class RandomWalker(NPC):  # 人物のベース
 
     def _update(self):
         while True:
-            for _ in range(16*3):
+            for _ in range(16*1):
                 yield
             d = random.randrange(4+3)
             dx, dy = (-1, 0, 1, 0, 0, 0, 0)[d], (0, -1, 0, 1, 0, 0, 0)[d]  # 動かないときも入れることで全員が同じタイミングで動くようにしない
@@ -319,7 +329,6 @@ class RandomWalker(NPC):  # 人物のベース
                 self.x, self.y, self.sx, self.sy = self.x+dx, self.y+dy, 0, 0
 
     def draw(self, ox, oy): super().draw(ox+self.sx, oy+self.sy)
-    # def act(self): TextBox(("青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻", "あおはあいよりいでてあいよりあおし。🔻\nひらがなのほうがいいかな？🔻")[random.randrange(2)])
 
 
 class Chest(NPC):
@@ -329,57 +338,63 @@ class Chest(NPC):
 
     def draw(self, ox, oy): pyxel.blt(ox+self.x*8, oy+self.y*8, *chip(self.chip), 8, 8, 0)  # y-1なし、blinkなし
 
-    def act(self):
-        self.update = self.clear  # テキストのあとに、動作するように
+    def _act(self):
         v = f"{self.item}ゴールド" if type(self.item) is int else self.item
-        TextBox(f"{g_player.name}はたからばこをあけた！🔻{v}をてにいれた！🔻")
-
-    def clear(self):
+        yield f"{g_player.name}はたからばこをあけた！🔻{v}をてにいれた！🔻"
         if type(self.item) is int:
             g_player.gold += self.item
         else:
             g_player.items += [self.item]
-        g_state.NPCs.remove(self)
-
+        yield g_state.NPCs.remove(self)
 # QuizBoy
 
 
-class Shopping(State):
-    def __init__(self):
-        self.textbox = None
-        self.update = self._update().__next__
-        self.goods = (("やくそう", 6), ("どくばり", 11))
+class InnDummy(NPC):
+    def __init__(self, x, y, price):
+        super().__init__(x, y, 1022, "")  # 1022 1023は何も表示しない
+        self.price = price
 
-    def _update(self):
-        self.textbox = TextBox("＊「ここはどうぐやです。なにをおもとめですか？")
+    def _act(self):
+        yield f"＊「ここはやどやです。ひとばん{self.price}ゴールドです。よろしいですか？"
+        yesno = SelectBox(*SelectBox.YesNoParameters)
         yield
+        if yesno.index == 0:
+            yield "\nごゆっくりお休みください。」"
+            s = Blackout(lambda: None)  # 音の変更
+            s.sound = 14
+            g_player.hp, g_player.mp, g_player.doku = g_player.maxhp, g_player.maxmp, False
+            # save()
+            yield
+            pyxel.playm(g_state.Music, loop=True)
+            yield "\n＊「おはようございます。いってらっしゃいませ。」🔻"
+        else:
+            yield "\nまたのお越しを！」🔻"
+
+
+class ShopDummy(NPC):
+    def __init__(self, x, y, goods, shopname="どうぐや"):  # (("やくそう", 6), ("どくばり", 11)), "どうぐや"
+        super().__init__(x, y, 1022, "")
+        self.goods, self.shopname = goods, shopname
+
+    def _act(self):
+        yield f"＊「ここは{self.shopname}です。なにをおもとめですか？"
         while True:
-            s = SelectBox(80, 8, [it[0]for it in self.goods])
+            s = SelectBox(-120, 8, [it[0]for it in self.goods])
             yield  # 次の回でindexを読む
             if s.index < 0:  # Bボタンでキャンセルしたときだけ会話を終えることができる？
                 break
             if self.goods[s.index][1] <= g_player.gold:
-                self.textbox = TextBox(f"\n{self.goods[s.index][0]}は{self.goods[s.index][1]}ゴールドです。よろしいですか？", self.textbox.text2)  # 新しいTextBoxを作っているが、前のtext2を渡して、続いているように見せる
-                yield
+                yield f"\n{self.goods[s.index][0]}は{self.goods[s.index][1]}ゴールドです。よろしいですか？"
                 yesno = SelectBox(*SelectBox.YesNoParameters)
                 yield  # 次の回でindexを読む
                 if yesno.index == 0:
                     g_player.items += [self.goods[s.index][0]]
                     g_player.gold -= self.goods[s.index][1]
-                    self.textbox = TextBox("\nありがとうございます。", self.textbox.text2)
-                    yield
+                    yield "\nありがとうございます。"
             else:
-                self.textbox = TextBox(f"\n{self.goods[s.index][0]}は{self.goods[s.index][1]}ゴールドです。おかねがたりないようです", self.textbox.text2)
-                yield
-            self.textbox = TextBox("\nほかにもなにかおもとめですか？", self.textbox.text2)
-            yield
-        yield TextBox("\nまたのお越しを！」🔻", self.textbox.text2)
-        yield self.releaseback()
-
-    def draw(self):
-        self.original_state.draw()
-        if self.textbox:
-            self.textbox.draw_just()  # TextBoxからフォーカスが帰ってきても、描画し続けることで続いているように見せる。
+                yield f"\n{self.goods[s.index][0]}は{self.goods[s.index][1]}ゴールドです。おかねがたりないようです。"
+            yield "\nほかにもなにかおもとめですか？"
+        yield "\nまたのお越しを！」🔻"
 
 
 class Battle(State):
@@ -391,7 +406,7 @@ class Battle(State):
 
     def releaseback(self):
         super().releaseback()
-        pyxel.playm(self.original_state.Music, loop=True)
+        pyxel.playm(self.original_state.Music, loop=True)  # @spec これがあるので、Fieldの上すぐにBattleが来ないとならない
 
     def _update(self):
         yield  # opening animation
@@ -399,15 +414,12 @@ class Battle(State):
         yield
         while True:
             command = None
-            def attack(): nonlocal command; command = self._attack
-            def runaway(): nonlocal command; command = self._runaway
-            def yakusou(): nonlocal command; command = self._yakusou
+            def other(): nonlocal command; command = True  # 後でSelectBox.selectedItemをみて設定し直す
             spells = g_player.spells
-            spellcommands = None
             items = [i for i in g_player.items if i in ("やくそう")]  # 戦闘中に使えるものだけ
-            itemcommands = [{"やくそう": yakusou}[i] for i in items]
             while not command:  # 命令が得られるまでSelectBoxを出す。(Bボタンで何度キャンセルされても)
-                yield SelectBox(80, 8, ("たたかう", "じゅもん", "どうぐ", "にげる"), (attack, lambda: SelectBox(84, 4, spells, spellcommands), lambda: SelectBox(84, 4, items, itemcommands), runaway))
+                yield SelectBox(-120, 8, ("たたかう", "じゅもん", "どうぐ", "にげる"), (other, lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items)), other))
+            command = {"たたかう": self._attack, "にげる": self._runaway, "やくそう": self._yakusou}[SelectBox.selectedItem]
             command2 = self.monster.choice(self._attack, self._runaway, self._yakusou)
             for it in command(g_player, self.monster):  # コルーチン(ジェネレーター)の連続呼び出し
                 self.textbox = TextBox(it, self.textbox.text2)
@@ -415,7 +427,7 @@ class Battle(State):
             if self.monster.hp <= 0:
                 break
             for it in command2(self.monster, g_player):  # コルーチン(ジェネレーター)の連続呼び出し
-                self.textbox = TextBox(it, self.textbox.text2)
+                self.textbox = TextBox(it.replace("\n", "\n　"), self.textbox.text2)
                 yield
             if g_player.hp <= 0:
                 yield TextBox(f"\n{g_player.name}はしんでしまった！🔻", self.textbox.text2)
@@ -428,43 +440,43 @@ class Battle(State):
 
     def draw(self):
         self.original_state.draw()
-        pyxel.rect(32+self.offset[0], 32+self.offset[1], 64, 64, 0)
-        if self.monster.hp > 0:
-            self.monster.draw(*self.offset)
+        pyxel.rect(32+self.offset[0], 32+self.offset[1], 64, 64, 0)  # 背景
         draw_playerstatus()  # 下になるので再度描画
         if self.textbox:
             self.textbox.draw_just()
+        if self.monster.hp > 0:
+            self.monster.draw(*self.offset)  # モンスターが一番上
 
     def _attack(self, offence, deffence):
-        tab = "" if offence == g_player else "　"
-        yield f"\n{tab}{offence.name}のこうげき！"
+        yield f"\n{offence.name}のこうげき！"
+        Shake = ((-2, -2), (-2, 2), (2, 2), (-2, 2), (1, -2), (-1, 1), (0, -1), (0, 1), (0, 0))
         pyxel.play(3, 16)
-        for i in range(8):  # SE待ち
-            if offence == g_player:
-                self.offset = ((-2, -2), (-2, 2), (2, 2), (-2, 2), (1, -2), (-1, 1), (0, -1), (0, 1))[i]
+        if offence == g_player:
+            for self.offset in Shake:
+                yield ""
+        while pyxel.play_pos(3) != -1:
             yield ""
         v = 4 + random.randrange(3)
-        deffence.hp -= v
-        yield f"\n{tab}{deffence.name}に{v}のダメージ！"
+        deffence.hp = max(deffence.hp-v, 0)
+        yield f"\n{deffence.name}に{v}のダメージ！"
 
     def _runaway(self, offence, deffence):
-        tab = "" if offence == g_player else "　"
-        yield f"\n{tab}{offence.name}は逃げ出した！"
-        for _ in range(8):  # 待ち
+        yield f"\n{offence.name}は逃げ出した！"
+        pyxel.play(3, 9)
+        while pyxel.play_pos(3) != -1:
             yield ""
         self.releaseback()
         yield ""
 
     def _yakusou(self, offence, _):
-        tab = "" if offence == g_player else "　"
-        yield f"\n{tab}{offence.name}はやくそうをつかった！"
+        yield f"\n{offence.name}はやくそうをつかった！"
         pyxel.play(3, 17)
-        for _ in range(8):  # SE待ち
+        while pyxel.play_pos(3) != -1:
             yield ""
         v = 5 + random.randrange(3)
         offence.hp = min(offence.hp + v, offence.maxhp)
         offence.items.remove("やくそう")
-        yield f"\n{tab}{offence.name}のＨＰは{v}かいふくした！"
+        yield f"\n{offence.name}のＨＰは{v}かいふくした！"
 
 
 def level(exp): return 1
@@ -482,20 +494,43 @@ g_player = Charactor("ああああ", 13, 0, 13, 0, [], [], 120, 0, 7)
 def draw_playerstatus():
     doku = "どく" if g_player.doku else ""
     draw_frameC(8, 8, 48, 32)
-    draw_textC(8, 8, f"{g_player.name:　<4} L{level(g_player.experience): 2}\nＨＰ {g_player.hp: 3}/{g_player.maxhp: 3}\nＭＰ {g_player.mp: 3}/{g_player.maxmp: 3}\nＧ {g_player.gold: 4} {doku}")
+    draw_textC(8, 8, f"{g_player.name:　<4} L{level(g_player.experience): 2}\nＨＰ {g_player.hp: 3}/{g_player.maxhp: 3}\nＭＰ {g_player.mp: 3}/{g_player.maxmp: 3}\nＧ {g_player.gold: 5}{doku}")
 
 
 class Slime(Charactor):
-    def __init__(self): super().__init__("スライム", 5+random.randrange(2), 0, 7, 0, [], (["やくそう"] if 3 == random.randrange(5) else []), 3+random.randrange(2), 3+random.randrange(2), 4)
+    def __init__(self): super().__init__("スライム", 5+random.randrange(2), 0, 7, 0, [], (["やくそう"] if 3 == random.randrange(7) else []), 3+random.randrange(2), 3+random.randrange(2), 4)
     def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 0, 0, 16, 16, 15)
-    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*2 if "やくそう" in self.items else []))
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*1+([yakusou]*2 if "やくそう" in self.items else []))
+
+
+class Rabbit(Charactor):
+    def __init__(self): super().__init__("うさぎ", 7+random.randrange(4), 0, 7, 0, [], (["やくそう"] if 3 == random.randrange(6) else []), 3+random.randrange(2), 3+random.randrange(2), 14)
+    def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 16, 0, 16, 16, 15)
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*1 if "やくそう" in self.items else []))
 
 
 class Mimic(Charactor):
     def __init__(self): super().__init__("ミミック", 11+random.randrange(4), 0, 15, 0, [], (["やくそう"] if 3 == random.randrange(4) else []), 30+random.randrange(9), 13+random.randrange(3), 9)
     def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 32, 0, 16, 16, 15)
-    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*2 if "やくそう" in self.items else []))
-# Mimic
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+([yakusou]*2 if "やくそう" in self.items else []))
+
+
+class Pi(Charactor):
+    def __init__(self): super().__init__("パイ", 8+random.randrange(4), 0, 9, 0, [], (["やくそう"] if 3 == random.randrange(6) else []), 3+random.randrange(2), 3+random.randrange(2), 8)
+    def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 48, 0, 16, 16, 13)
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*1 if "やくそう" in self.items else []))
+
+
+class Theta(Charactor):
+    def __init__(self): super().__init__("シータ", 9+random.randrange(4), 0, 10, 0, [], (["やくそう"] if 3 == random.randrange(6) else []), 3+random.randrange(2), 3+random.randrange(2), 8)
+    def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 64, 0, 16, 16, 15)
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*1 if "やくそう" in self.items else []))
+
+
+class Root(Charactor):
+    def __init__(self): super().__init__("ルート", 10+random.randrange(4), 0, 11, 0, [], (["やくそう"] if 3 == random.randrange(6) else []), 3+random.randrange(2), 3+random.randrange(2), 10)
+    def draw(self, ox, oy): pyxel.blt(56+ox, 56+oy, 2, 80, 0, 16, 16, 5)
+    def choice(self, attack, runaway, yakusou): return random.choice([attack]*self.hp+[runaway]*2+([yakusou]*1 if "やくそう" in self.items else []))
 
 
 class Castle(Field):
@@ -503,14 +538,16 @@ class Castle(Field):
         super().__init__()
         self.x, self.y = x, y
         self.encont_monster = lambda x, y: None
-        def field(): Field.Blackout(lambda: Field())
-        self.traps = ((21, 16, field), (22, 16, field), (23, 16, field), (24, 5, lambda: Field.Blackout(lambda: Palace())), )
+        def field(): Blackout(lambda: Field())
+        self.traps = ((21, 16, field), (22, 16, field), (23, 16, field), (24, 5, lambda: Blackout(lambda: Palace())), )
     MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 1, 9, 0, 32, 17, 3
-    NPCs = [NPC(11, 13, 196, ""),
-            NPC(12, 13, 1022, lambda: Shopping()),  # chip1022,1023は作ってないから真っ黒(透明)を描画する。callableを与えるとそれを呼ぶ
+    NPCs = [NPC(11, 13, 196, ""),  # 少年
+            ShopDummy(12, 13, (("やくそう", 6), ("どうのけん", 35))),
+            NPC(29, 14, 198, ""),  # 女性
+            InnDummy(28, 15, 7),
             RandomWalker(13, 2, 198, "あおはあいよりいでてあいよりあおし。🔻\nひらがなのほうがいいかな？🔻"),
             RandomWalker(15, 5, 196, "青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻"),
-            RandomWalker(26, 13, 200, "＊「じゅげむじゅげむごこうの\nすりきれかいじゃりすいぎょのすいぎょうまつうんらいまつふうらいまつくうねるところにすむところやぶらこうじのぶらこうじぱいぽぱいぽぱいぽのしゅーりんがんしゅーりんがんのぐーりんだいぐーりんだいのぽんぽこぴーのぽんぽこなのちょうきゅうめいのちょうすけ🔻"),
+            RandomWalker(26, 13, 200, "そこのたからばこにはさわってはいけない。ちゅうこくしたぞ🔻"),
             NPC(30, 11, 1022, lambda: Battle(Mimic())), ]
     Music = 2
 
@@ -520,7 +557,7 @@ class Palace(Field):
         super().__init__()
         self.x, self.y = 8, 4
         self.encont_monster = lambda x, y: None
-        self.traps = ((8, 4, lambda: Field.Blackout(lambda: Castle(24, 5))),)
+        self.traps = ((8, 4, lambda: Blackout(lambda: Castle(24, 5))),)
         if is_opening:
             self.x, self.y = 4, 4
             self.direction = 1
@@ -549,13 +586,14 @@ class Title(State):
 
 
 def save():
-    with open('xxx.dump', 'wb') as f:
-        pickle.dump(Palace.NPCs, f)
+    pass
+    # with open('xxx.dump', 'wb') as f:
+    #     pickle.dump(Palace.NPCs, f)
 
 
 def load():
-    with open('xxx.dump', 'rb') as f:
-        Palace.NPCs = pickle.load(f)
+    # with open('xxx.dump', 'rb') as f:
+    #     Palace.NPCs = pickle.load(f)
     Palace()
 
 
