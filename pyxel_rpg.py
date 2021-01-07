@@ -1,12 +1,12 @@
-import pickle
+# import pickle
 import random
 import re
 
 import pyxel
 
 
-def arrowkeysp(values=(0, 1, 2, 3), poll=pyxel.btnp):  # 戻り値:押されてないときNone、押されたときvaluesのなかの一つが返る。python.spec 0はfalseと判定されることに注意して使う
-    s = [v for k, v in zip((pyxel.KEY_LEFT, pyxel.KEY_UP, pyxel.KEY_RIGHT, pyxel.KEY_DOWN, pyxel.GAMEPAD_1_LEFT, pyxel.GAMEPAD_1_UP, pyxel.GAMEPAD_1_RIGHT, pyxel.GAMEPAD_1_DOWN), values+values) if poll(k)]
+def arrowkeysp(values=(0, 1, 2, 3), method=pyxel.btnp):  # 戻り値:押されてないときNone、押されたときvaluesのなかの一つが返る。python.spec 0はfalseと判定されることに注意して使う
+    s = [v for k, v in zip((pyxel.KEY_LEFT, pyxel.KEY_UP, pyxel.KEY_RIGHT, pyxel.KEY_DOWN, pyxel.GAMEPAD_1_LEFT, pyxel.GAMEPAD_1_UP, pyxel.GAMEPAD_1_RIGHT, pyxel.GAMEPAD_1_DOWN), values+values) if method(k)]
     return s[0] if s else None
 
 
@@ -143,8 +143,8 @@ class TextBox(State):
             if "　" == c:  # スペースはウエイトなし
                 self.text2 += c
                 continue
-            if "」" == c:
-                ret_wz_tab = "\n"  # fallthrough
+            # if "」" == c: # こうしてもだめ。新しいTextBoxが作られたとき
+            #     ret_wz_tab = "\n"  # fallthrough
             if "🔻" == c:  # クリック待ち
                 self.speed = TextBox.Speed
                 yield TextBox.V()
@@ -195,6 +195,9 @@ class TextBox(State):
             draw_textC(110, 120, TextBox.V.Cursor)
 
 
+Spells = {"ヒール": 2, }
+
+
 class Field(State):
     def __init__(self, x=12, y=2):
         self.x, self.y, self.direction = x, y, 3  # 主人公の位置、主人公の向き
@@ -202,9 +205,12 @@ class Field(State):
         self.update = self._update().__next__
         self.idle_start = pyxel.frame_count
         self.textbox = None
+        self.fdraw_poison = False
         self.original_state = None  # fieldより下はないはずなので切っておく
         pyxel.playm(self.Music, loop=True)
-        self.traps = ((12, 2, lambda: Blackout(lambda: Castle(22, 15))), )  # 街、階段とか # lambdaで「あとで実行」をここで書ける # Battleを書く場合があるかもしれないのでクラス変数にしない
+        self.traps = ((12, 2, lambda: Blackout(lambda: Castle(22, 15))),  # 街、階段とか # lambdaで「あとで実行」をここで書ける # Battleを書く場合があるかもしれないのでクラス変数にしない
+                      (4, 29, lambda: Blackout(lambda: Villege(self.direction))),
+                      (13, 27, lambda: Blackout(lambda: Dungeon(11, 26))), )
     MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 0, 0, 0, 256, 256, 12
     NPCs = []  # NPC 扉、宝箱など。２度作られないようにクラス変数にしておく
     Music = 1  # 戦闘シーンから戻るときに音楽を戻す
@@ -229,11 +235,11 @@ class Field(State):
                 else:  # 話す相手がいなければ、コマンドをだす
                     command = None
                     def other(): nonlocal command; command = True
-                    spells = []
-                    items = [i for i in g_player.items if i in ("やくそう")]  # フィールドで使えるものだけ
+                    spells = [i for i in [_ for _ in g_player.spells if Spells[_] <= g_player.mp] if i in ("ヒール")]  # フィールドで使えるものだけ
+                    items = [i for i in g_player.items if i in ("やくそう", "どうのけん")]  # フィールドで使えるものだけ
                     yield SelectBox(-120, 8, ("じゅもん", "どうぐ"), (lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items))))
                     if command:
-                        command = {"やくそう": self._yakusou}[SelectBox.selectedItem]
+                        command = {"ヒール": self._heal, "やくそう": self._yakusou, "どうのけん": self._soards}[SelectBox.selectedItem]
                         for it in command():  # コルーチン(ジェネレーター)の連続呼び出し
                             self.textbox = TextBox(it, self.textbox.text2 if self.textbox else "")
                             yield
@@ -253,6 +259,9 @@ class Field(State):
                     yield
                 self.x, self.y, self.sx, self.sy = self.x + dx, self.y + dy, 0, 0
                 if dx != 0 or dy != 0:  # 動いたときだけイベント発生
+                    if pyxel.tilemap(self.MapID).get(self.x, self.y) == 6:  # 毒沼
+                        g_player.hp -= 1
+                        self.fdraw_poison = True
                     if g_player.hp <= 0:
                         yield TextBox(f"{g_player.name}はしんでしまった！🔻")
                         yield Title()
@@ -271,9 +280,22 @@ class Field(State):
             draw_playerstatus()
         if self.textbox:
             self.textbox.draw_just()
+        if self.fdraw_poison:
+            pyxel.rectb(0, 0, pyxel.width, pyxel.height, 8)
+            self.fdraw_poison = False
         # pyxel.text(0, 0, f"{self.x: 3}: {self.y: 3}", 7)
 
     def encont_monster(self, x, y): return (Slime(), Slime(), Rabbit(), Pi(), Theta(), Root())[random.randrange(6)] if 5 == random.randrange(15) else None
+
+    def _heal(self):
+        yield f"{g_player.name}はヒールをとなえた！"
+        pyxel.play(3, 17)
+        while pyxel.play_pos(3) != -1:
+            yield ""
+        v = 5 + random.randrange(5)
+        g_player.hp = min(g_player.hp + v, g_player.maxhp)
+        g_player.mp -= 2
+        yield f"\n{g_player.name}のＨＰは{v}かいふくした！🔻"
 
     def _yakusou(self):
         yield f"{g_player.name}はやくそうをつかった！"
@@ -284,6 +306,8 @@ class Field(State):
         g_player.hp = min(g_player.hp + v, g_player.maxhp)
         g_player.items.remove("やくそう")
         yield f"\n{g_player.name}のＨＰは{v}かいふくした！🔻"
+
+    def _soards(self): yield "けんはもつだけで、こうかがあるよ。"
 
 
 class Blackout(State):
@@ -415,11 +439,11 @@ class Battle(State):
         while True:
             command = None
             def other(): nonlocal command; command = True  # 後でSelectBox.selectedItemをみて設定し直す
-            spells = g_player.spells
+            spells = [i for i in [_ for _ in g_player.spells if Spells[_] <= g_player.mp] if i in ("ヒール")]  # 戦闘中に使えるものだけ
             items = [i for i in g_player.items if i in ("やくそう")]  # 戦闘中に使えるものだけ
             while not command:  # 命令が得られるまでSelectBoxを出す。(Bボタンで何度キャンセルされても)
                 yield SelectBox(-120, 8, ("たたかう", "じゅもん", "どうぐ", "にげる"), (other, lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items)), other))
-            command = {"たたかう": self._attack, "にげる": self._runaway, "やくそう": self._yakusou}[SelectBox.selectedItem]
+            command = {"たたかう": self._attack, "にげる": self._runaway, "ヒール": self._heal, "やくそう": self._yakusou}[SelectBox.selectedItem]
             command2 = self.monster.choice(self._attack, self._runaway, self._yakusou)
             for it in command(g_player, self.monster):  # コルーチン(ジェネレーター)の連続呼び出し
                 self.textbox = TextBox(it, self.textbox.text2)
@@ -432,10 +456,17 @@ class Battle(State):
             if g_player.hp <= 0:
                 yield TextBox(f"\n{g_player.name}はしんでしまった！🔻", self.textbox.text2)
                 yield Title()
-        self.textbox = TextBox(f"\n{self.monster.name}をたおした！🔻\n{self.monster.gold}ゴールドと、{self.monster.experience}のけいけんちをえた！🔻", self.textbox.text2)
+        items = "、".join(self.monster.items)+"、" if self.monster.items else ""  # ドロップ品
+        self.textbox = TextBox(f"\n{self.monster.name}をたおした！🔻\n{self.monster.gold}ゴールドと、{items}{self.monster.experience}のけいけんちをえた！🔻", self.textbox.text2)
         yield
+        g_player.items += self.monster.items
         g_player.gold += self.monster.gold
         g_player.experience += self.monster.experience
+        if level(g_player.experience - self.monster.experience) < level(g_player.experience):
+            self.textbox = TextBox(f"\n{g_player.name}はレベルがあがった！🔻", self.textbox.text2)
+            g_player.maxhp, g_player.maxmp, spells, g_player.agility = Statuses[level(g_player.experience)-1]
+            g_player.spells += spells
+            yield
         yield self.releaseback()
 
     def draw(self):
@@ -456,7 +487,8 @@ class Battle(State):
                 yield ""
         while pyxel.play_pos(3) != -1:
             yield ""
-        v = 4 + random.randrange(3)
+        a = max([v for k, v in (("どうのけん", 4),) if k in offence.items] + [0])
+        v = 3 + random.randrange(3) + a
         deffence.hp = max(deffence.hp-v, 0)
         yield f"\n{deffence.name}に{v}のダメージ！"
 
@@ -478,8 +510,29 @@ class Battle(State):
         offence.items.remove("やくそう")
         yield f"\n{offence.name}のＨＰは{v}かいふくした！"
 
+    def _heal(self, offence, _):
+        yield f"\n{offence.name}はヒールをとなえた！"
+        pyxel.play(3, 17)
+        while pyxel.play_pos(3) != -1:
+            yield ""
+        v = 5 + random.randrange(3)
+        offence.hp = min(offence.hp + v, offence.maxhp)
+        offence.mp -= 2
+        yield f"\n{offence.name}のＨＰは{v}かいふくした！"
 
-def level(exp): return 1
+
+#           maxhp, maxmp, spells, agility,
+Statuses = ((13,  2, ["ヒール"], 7,),
+            (16,  6, [], 10,),
+            (19,  13, [], 13,),
+            (22,  18, [], 14,),
+            (25,  24, [], 17,),
+            (28,  30, [], 21,),)
+
+Levels = (0, 13, 28, 45, 63, 85, 999)
+
+
+def level(exp): return len([i for i in Levels if i <= exp])
 
 
 class Charactor:
@@ -488,7 +541,7 @@ class Charactor:
         self.doku = False
 
 
-g_player = Charactor("ああああ", 13, 0, 13, 0, [], [], 120, 0, 7)
+g_player = Charactor("ああああ", 13, 2, 13, 2, ["ヒール"], [], 120, 0, 7)
 
 
 def draw_playerstatus():
@@ -544,8 +597,8 @@ class Castle(Field):
     NPCs = [NPC(11, 13, 196, ""),  # 少年
             ShopDummy(12, 13, (("やくそう", 6), ("どうのけん", 35))),
             NPC(29, 14, 198, ""),  # 女性
-            InnDummy(28, 15, 7),
-            RandomWalker(13, 2, 198, "あおはあいよりいでてあいよりあおし。🔻\nひらがなのほうがいいかな？🔻"),
+            InnDummy(28, 14, 7),
+            RandomWalker(13, 2, 198, "みなみにゆけば、まちとダンジョンがある。"),
             RandomWalker(15, 5, 196, "青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻"),
             RandomWalker(26, 13, 200, "そこのたからばこにはさわってはいけない。ちゅうこくしたぞ🔻"),
             NPC(30, 11, 1022, lambda: Battle(Mimic())), ]
@@ -570,10 +623,41 @@ class Palace(Field):
     Music = 2
 
 
+class Villege(Field):
+    def __init__(self, direction):
+        super().__init__()
+        self.x, self.y = ((62, 15), (47, 1), (33, 15), (47, 30))[direction]
+        self.direction = direction
+        self.encont_monster = lambda x, y: None
+        def field(): Blackout(lambda: Field(4, 29))
+        self.traps = ((32, 15, field), (32, 16, field), (47, 0, field), (48, 0, field), (63, 15, field), (63, 15, field), (47, 31, field), (48, 31, field),)
+    MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 1, 32, 0, 64, 32, 3
+    NPCs = [NPC(58, 21, 196, ""),  # 少年
+            ShopDummy(58, 20, (("やくそう", 6), ("どうのけん", 35))),
+            NPC(36, 19, 198, ""),  # 女性
+            InnDummy(37, 19, 7),
+            RandomWalker(33, 2, 198, "あおはあいよりいでてあいよりあおし。🔻\nひらがなのほうがいいかな？🔻"),
+            RandomWalker(35, 5, 196, "青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻"),
+            RandomWalker(36, 13, 200, "ここはぼうけんしゃのまち。\nちかくのだんじょんにちょうせんするひとびとがあつまる。🔻"),
+            ]
+    Music = 2
+
+
+class Dungeon(Field):
+    def __init__(self, x, y):
+        super().__init__()
+        self.x, self.y = x, y
+        self.traps = ((11, 26, lambda: Blackout(lambda: Field(13, 27))),)
+    MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 1, 0, 24, 32, 56, 0
+    NPCs = [
+        NPC(7, 54, 1022, lambda: Battle(Mimic())), ]
+    Music = 2
+
+
 class Title(State):
     def __init__(self):
         global g_player
-        g_player = Charactor(g_player.name, 13, 0, 13, 0, [], [], 10, 0, 7)
+        g_player = Charactor(g_player.name, 13, 2, 13, 2, ["ヒール"], [], 10, 0, 7)
         pyxel.playm(0, loop=True)
 
     def update(self):
