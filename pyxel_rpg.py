@@ -10,6 +10,7 @@ def arrowkeysp(values=(0, 1, 2, 3), method=pyxel.btnp):  # 戻り値:押され�
     return s[0] if s else None
 
 
+def arrowkeys(values=(0, 1, 2, 3)): return arrowkeysp(values, pyxel.btn)
 def btnpA(): return pyxel.btnp(pyxel.GAMEPAD_1_A) or pyxel.btnp(pyxel.KEY_1) or pyxel.btnp(pyxel.KEY_KP_1) or pyxel.btnp(pyxel.KEY_Z)
 def btnpB(): return pyxel.btnp(pyxel.GAMEPAD_1_B) or pyxel.btnp(pyxel.KEY_2) or pyxel.btnp(pyxel.KEY_KP_2) or pyxel.btnp(pyxel.KEY_X)
 def blinker(): return pyxel.frame_count // 16 % 2  # 右、左、右、左、の変化用
@@ -44,7 +45,7 @@ class BDF:
 
 
 Font1 = BDF("./assets/misaki_gothic_2nd.bdf")  # 注意:ほかの多くのbdfフォントファイルはutf-8への変換が必要だった
-Font1.chars[48]['glyph'][3] = 'A0'  # 0の中の点を無くす
+Font1.chars[48]['glyph'][3] = 'A'  # 0の中の点を無くす
 # Font1.fx, Font1.fy = 2, 3  # 外から調整できる
 
 
@@ -53,7 +54,7 @@ def draw_textC(x, y, text): draw_text(x, y, text, 8 if g_player.hp <= 0 else 10 
 def draw_frameC(x, y, w, h): draw_frame(x, y, w, h, 2 if g_player.hp <= 0 else 1 if g_player.hp < g_player.maxhp / 2 else 0)  # カラー
 
 
-def draw_frame(x, y, w, h, col=0):  # col 0: white 1:yellow 2:red
+def draw_frame(x, y, w, h, col=0):  # col 0: white 1:yellow 2:red x,yは枠の左上ではない。中のテキストの左上
     A, B, C = 5, -2, -1  # (x,y)からA:左上に、B:右、C:下の調節
     pyxel.blt(x-A, y-A, 0, col*8, 16, A, A, 15)
     pyxel.blt(x+w+B, y-A, 0, col*8, 16, -A, A, 15)
@@ -75,7 +76,7 @@ class State:  # 重ねてウィンドウを表示、フォーカスを移動さ�
         return self
 
     def update(self): pass
-    # def draw(self): pass
+    def draw(self): pass
 
     def releaseback(self, fmulti=False):  # 閉じてフォーカスを返す、を実現するためのもの
         global g_state  # global宣言忘れがちなので、できるだけここを使う
@@ -90,7 +91,7 @@ ToZenkaku = str.maketrans({chr(0x0021 + i): chr(0xFF01 + i) for i in range(94)})
 
 
 class SelectBox(State):  # ２段に並んだものでも簡潔に表現できると思うが、128ピクセルでは縦のみになった。
-    def __init__(self, ox, oy, texts, commands=None):  # コマンドを指定しないときは、あとからindexを読んで使う
+    def __init__(self, ox, oy, texts, commands=None):  # コマンドを指定しないときは、あとからindexやselectedItemを読んで使う
         if len(texts) > 0:
             self.w, self.h = Font1.box("あ")[0] * (max([len(s) for s in texts]) + 1), Font1.box("あ")[1] * len(texts)
             self.index, self.ox, self.oy, self.texts, self.commands = 0, ox if ox >= 0 else -ox-self.w, oy if oy >= 0 else -oy-self.h, texts, commands or (lambda: None,)*len(texts)
@@ -101,7 +102,7 @@ class SelectBox(State):  # ２段に並んだものでも簡潔に表現でき�
         self.cursor = "●"  # "→"
         self.sounds = {"OK": 1, "Cancel": 2, "Move": 0}
     selectedItem = None  # サブメニューでも項目名を(後で)取れるように
-    YesNoParameters = (-122, -84, ("はい", "いいえ"))  # ox oy に負の値を指定したときは右下を指定したものとして左上を計算で求める
+    YesNoParameters = (-122, -84, ("はい", "いいえ"))  # ox oy に負の値を指定したときは右下を指定したものとして必要文字分の左上を計算で求める
 
     def update(self):
         if btnpA():
@@ -109,7 +110,7 @@ class SelectBox(State):  # ２段に並んだものでも簡潔に表現でき�
             SelectBox.selectedItem = self.texts[self.index]
             self.commands[self.index]()  # この中でg_stateを変更しても、次行も実行されるため、typeを見て動作を変える対策をした
             self.releaseback(True)  # g_stateを変更したが、効果があるのは次フレームから
-        if btnpB():  # Bは何もせずにフォーカスを返す
+        if btnpB():  # B:Cancel は何もせずにフォーカスを返す
             self.index = -1  # index -1: Cancel
             pyxel.play(3, self.sounds["Cancel"])
             self.releaseback()
@@ -119,7 +120,7 @@ class SelectBox(State):  # ２段に並んだものでも簡潔に表現でき�
             pyxel.play(3, self.sounds["Move"])
 
     def draw(self):
-        self.original_state.draw()
+        self.original_state.draw()  # 背景を描画
         draw_frameC(self.ox, self.oy, self.w, self.h)
         draw_textC(self.ox, self.oy, "".join([f"　{s}\n" for s in self.texts]))
         draw_textC(self.ox, self.oy, "\n" * self.index + self.cursor)  # "→") # misaki_gothicで▶が見つからない。文字にすると別色にもできる
@@ -140,7 +141,7 @@ class TextBox(State):
     def _update(self):
         tab = "　　" if re.match(r"\n?.「", self.text) or re.match("　　", self.text0) or re.match(".「", self.text0) else ""
         for i, c in enumerate(self.text):  # 一文字ずつ描画(スペース,\nと🔻は別な動作をさせる)
-            if "　" == c:  # スペースはウエイトなし
+            if "　" == c:  # スペースは待たない
                 self.text0 += c
                 continue
             if "🔻" == c:  # クリック待ち
@@ -149,13 +150,13 @@ class TextBox(State):
                 continue
             if "\n" != c and len(self.text0.split("\n")[-1]) >= TextBox.Len:  # 自動改行
                 c = "\n"+c  # 指定改行とコードを共通化させるため、一時的にcを変更(改行のコードも通り、文字のコードも通る)
-            if "\n" == c[0]:
-                self.text0 += "\n" + tab
+            if "\n" == c[0] or "\r" == c:  # \rをタブなし改行とした
+                self.text0 += "\n" + (tab if "\r" != c else "")
                 s = self.text0.split("\n")
                 if len(s) > TextBox.Lines:  # scroll up
                     for self.sy in range(0, TextBox._H, 2):
                         if btnpA():
-                            self.speed = 0  # Aボタンによるアニメスキップ(の代わりに高速動作)
+                            self.speed = 0  # Aボタンによるアニメスキップ(の代わりに高速動作)🔻で戻す
                         yield
                     self.text0, self.sy = "\n".join(s[-TextBox.Lines:]), 0
                 if "\n" == c:
@@ -166,7 +167,7 @@ class TextBox(State):
             pyxel.play(3, self.sounds["Step"])
             for j in range(self.speed):  # ウエイト
                 if btnpA():  # self.updateをたくさん呼べばいい？→ジェネレーター内から自身は呼べない
-                    self.speed = 0  # Aボタンによるアニメスキップ(の代わりに高速動作)
+                    self.speed = 0  # Aボタンによるアニメスキップ(の代わりに高速動作)🔻で戻す
                 yield
         yield self.releaseback()
 
@@ -217,20 +218,20 @@ class Field(State):
             [npc for npc in self.NPCs if x == npc.x and y == npc.y]  # pyxel.spec タイル範囲外アクセスで落ちる
 
     def _update(self):
+        dx, dy = (-1, 0, 1, 0)[self.direction], (0, -1, 0, 1)[self.direction]
         while True:
             [npc.update() for npc in self.NPCs]
+            [v() for k, v in self.HotKeys.items() if pyxel.btnp(k)]  # ホットキー(開発中のみ？)
             if btnpA() or btnpB():
-                dx, dy = (-1, 0, 1, 0)[self.direction], (0, -1, 0, 1)[self.direction]
-                if s := [npc for npc in self.NPCs if self.x+dx == npc.x and self.y+dy == npc.y]:  # 話しかける、宝箱を開けるなど
+                if s := [npc for npc in self.NPCs if self.x+dx == npc.x and self.y+dy == npc.y]:  # NPCに話しかける、宝箱を開けるなど
                     for it in s[0]._react():  # 会話コルーチンの連続呼び出し
                         self.textbox = TextBox(it, self.textbox.text0 if self.textbox else "")
                         yield
                     self.textbox = None
-                    pass
-                else:  # 話す相手がいなければ、コマンドをだす
+                else:  # 話す相手(NPC)がいなければ、コマンドメニューをだす
                     command = None
                     def other(): nonlocal command; command = True
-                    spells = [i for i in [_ for _ in g_player.spells if Spells[_] <= g_player.mp] if i in ("ヒール")]  # フィールドで使えるものだけ
+                    spells = [i for i in [_ for _ in g_player.spells if Spells[_] <= g_player.mp] if i in ("ヒール")]  # MPが足りて、フィールドで使えるものだけ
                     items = [i for i in g_player.items if i in ("やくそう", "もどりふだ", "どうのけん")]  # フィールドで使えるものだけ
                     yield SelectBox(-120, 8, ("じゅもん", "どうぐ"), (lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items))))
                     if command:
@@ -239,31 +240,30 @@ class Field(State):
                             self.textbox = TextBox(it, self.textbox.text0 if self.textbox else "")
                             yield
                         self.textbox = None
-            # if btnpB():  # Aボタンと同じ動作をするようにした
-            #     pass
-            [v() for k, v in self.HotKeys.items() if pyxel.btnp(k)]
-            d = arrowkeysp((0, 1, 2, 3), pyxel.btn)
+            # if btnpB(): pass # Aボタンと同じ動作をするようにした
+            d = arrowkeys((0, 1, 2, 3))
             if None is not d:
                 self.idle_start = pyxel.frame_count
                 self.direction, dx, dy = d, (-1, 0, 1, 0)[d], (0, -1, 0, 1)[d]
-                if self.isblocked(self.x+dx, self.y+dy):
-                    pyxel.play(3, 2)
-                    dx, dy = 0, 0  # 壁などに向かおうとしたら8frame動かない(音を出す時間のため?)
-                for i in range(1, 8, 1):  # マスからマスの途中はアニメ
-                    self.sx, self.sy = self.sx + dx, self.sy + dy
-                    yield
-                self.x, self.y, self.sx, self.sy = self.x + dx, self.y + dy, 0, 0
-                if dx != 0 or dy != 0:  # 動いたときだけイベント発生
+                if not self.isblocked(self.x+dx, self.y+dy):  # 進める
+                    for i in range(1, 8, 1):  # マスからマスの途中はアニメ
+                        self.sx, self.sy = self.sx + dx, self.sy + dy
+                        yield
+                    self.x, self.y, self.sx, self.sy = self.x + dx, self.y + dy, 0, 0
                     if pyxel.tilemap(self.MapID).get(self.x, self.y) == 6:  # 毒沼
                         g_player.hp -= 1
                         self.fdraw_poison = True
                     if g_player.hp <= 0:
                         yield TextBox(f"{g_player.name}はしんでしまった！🔻")
                         yield Title()
-                    elif [command() for x, y, command in self.traps if x == self.x and y == self.y]:
+                    elif [command() for x, y, command in self.traps if x == self.x and y == self.y]:  # 階段など
                         pass
                     elif m := self.encont_monster(self.x, self.y):
-                        Battle(m)
+                        yield Battle(m)
+                else:  # 進めない
+                    pyxel.play(3, 2)
+                    while pyxel.play_pos(3) != -1:
+                        yield
             yield
 
     def draw(self):
@@ -280,13 +280,13 @@ class Field(State):
             self.fdraw_poison = False
         # pyxel.text(0, 0, f"{self.x: 3}: {self.y: 3}", 7)
 
-    def encont_monster(self, x, y): return (Slime(), Slime(), Rabbit(), Pi(), Theta(), Root())[random.randrange(6)] if 5 == random.randrange(15) else None
+    def encont_monster(self, x, y): return (Slime, Slime, Rabbit, Pi, Theta, Root)[random.randrange(6)]() if 5 == random.randrange(15) else None
 
-    def _heal(self):
+    def _heal(self):  # 以下、コマンドへの対応
         yield f"{g_player.name}はヒールをとなえた！"
         pyxel.play(3, 17)
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         v = 5 + random.randrange(5)
         g_player.hp = min(g_player.hp + v, g_player.maxhp)
         g_player.mp -= 2
@@ -296,7 +296,7 @@ class Field(State):
         yield f"{g_player.name}はやくそうをつかった！"
         pyxel.play(3, 17)
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         v = 5 + random.randrange(5)
         g_player.hp = min(g_player.hp + v, g_player.maxhp)
         g_player.items.remove("やくそう")
@@ -305,16 +305,16 @@ class Field(State):
     def _return_ticket(self):
         yield "もどりふだはさいしょのしろのばしょにもどります。\nつかいますか？"
         yesno = SelectBox(*SelectBox.YesNoParameters)
-        yield
+        yield ""
         if yesno.index == 0:
             yield f"\n{g_player.name}はもどりふだをつかった！"
             g_player.items.remove("もどりふだ")
             pyxel.play(3, 17)
             while pyxel.play_pos(3) != -1:
-                yield
+                yield ""
             yield Field(12, 3)  # 音の変更
         else:
-            yield
+            yield ""
 
     def _soards(self): yield "けんなどはじどうでいちばんつよいものがつかわれる。🔻"
 
@@ -324,7 +324,7 @@ class Blackout(State):
         self.command = command
         self.update = self._update().__next__
         self.sound = 9
-        pyxel.stop()
+        pyxel.stop()  # BGM停止
 
     def _update(self):
         pyxel.play(3, self.sound)
@@ -340,7 +340,7 @@ class NPC:  # ベースクラスを王様に使ってる……宝箱などにも
     def __init__(self, x, y, chip, text_or_callable): self.x, self.y, self.chip, self.text_or_callable = x, y, chip, text_or_callable
     def update(self): pass
     def draw(self, ox, oy): pyxel.blt(ox+self.x*8, oy+self.y*8-1, *chip(self.chip+blinker()), 8, 8, 0)  # 人物はy-1して少し重ねる
-    def _react(self): yield self.text_or_callable if not callable(self.text_or_callable) else self.text_or_callable()  # シンプルなテキストだけなら文字列を、複雑なものはstateにまとめて(例:Shopping)
+    def _react(self): yield self.text_or_callable if not callable(self.text_or_callable) else self.text_or_callable()  # シンプルなテキストだけなら文字列を、複雑なものは_reactを更新(例:Shop)
 
 
 class RandomWalker(NPC):  # 人物のベース
@@ -351,10 +351,10 @@ class RandomWalker(NPC):  # 人物のベース
 
     def _update(self):
         while True:
-            for _ in range(16*1):
+            for _ in range(16*2):
                 yield
             d = random.randrange(4+3)
-            dx, dy = (-1, 0, 1, 0, 0, 0, 0)[d], (0, -1, 0, 1, 0, 0, 0)[d]  # 動かないときも入れることで全員が同じタイミングで動くようにしない
+            dx, dy = (-1, 0, 1, 0, 0, 0, 0)[d], (0, -1, 0, 1, 0, 0, 0)[d]  # 動かないときも入れることで全員が同じタイミングで動かないよう
             if not (g_state.isblocked(self.x+dx, self.y+dy) or (self.x+dx == g_state.x or self.y+dy == g_state.y)):  # npc.updateが呼ばれるときg_stateはFieldです
                 for i in range(0, 8, 1):
                     self.sx, self.sy = self.sx+dx, self.sy+dy
@@ -379,10 +379,9 @@ class Chest(NPC):
         else:
             g_player.items += [self.item]
         yield g_state.NPCs.remove(self)
-# QuizBoy
 
 
-class InnDummy(NPC):
+class InnDummy(NPC):  # 机に設定する
     def __init__(self, x, y, price):
         super().__init__(x, y, 1022, "")  # 1022 1023は何も表示しない
         self.price = price
@@ -390,21 +389,21 @@ class InnDummy(NPC):
     def _react(self):
         yield f"＊「ここはやどやです。ひとばん{self.price}ゴールドです。よろしいですか？"
         yesno = SelectBox(*SelectBox.YesNoParameters)
-        yield
+        yield ""
         if yesno.index == 0:
             yield "\nごゆっくりお休みください。」"
             s = Blackout(lambda: None)  # 音の変更
             s.sound = 14
             g_player.hp, g_player.mp, g_player.doku = g_player.maxhp, g_player.maxmp, False
-            save()
-            yield
+            yield ""
             pyxel.playm(g_state.Music, loop=True)
-            yield "\n＊「おはようございます。いってらっしゃいませ。」🔻"
+            save()
+            yield "\r＊「おはようございます。いってらっしゃいませ。」🔻"  # \rでタグなし改行
         else:
             yield "\nまたのお越しを！」🔻"
 
 
-class ShopDummy(NPC):
+class ShopDummy(NPC):  # 机に設定する
     def __init__(self, x, y, goods, shopname="どうぐや"):  # (("やくそう", 6), ("どくばり", 11)), "どうぐや"
         super().__init__(x, y, 1022, "")
         self.goods, self.shopname = goods, shopname
@@ -442,17 +441,17 @@ class Battle(State):
         pyxel.playm(self.original_state.Music, loop=True)  # @spec これがあるので、Fieldの上すぐにBattleが来ないとならない
 
     def _update(self):
-        yield  # opening animation
+        # yield  # opening animation
         self.textbox = TextBox(f"{self.monster.name}があらわれた！")
         yield
         while True:
             command = None
-            def other(): nonlocal command; command = True  # 後でSelectBox.selectedItemをみて設定し直す
+            def other(): nonlocal command; command = True  # 一時的にTrueとし、後でSelectBox.selectedItemをみて設定し直す
             spells = [i for i in [_ for _ in g_player.spells if Spells[_] <= g_player.mp] if i in ("ヒール")]  # 戦闘中に使えるものだけ
             items = [i for i in g_player.items if i in ("やくそう")]  # 戦闘中に使えるものだけ
             while not command:  # 命令が得られるまでSelectBoxを出す。(Bボタンで何度キャンセルされても)
                 yield SelectBox(-120, 8, ("たたかう", "じゅもん", "どうぐ", "にげる"), (other, lambda: SelectBox(-124, 4, spells, [other]*len(spells)), lambda: SelectBox(-124, 4, items, [other]*len(items)), other))
-            command = {"たたかう": self._attack, "にげる": self._runaway, "ヒール": self._heal, "やくそう": self._yakusou}[SelectBox.selectedItem]
+            command = {"たたかう": self._attack, "にげる": self._runaway, "ヒール": self._heal, "やくそう": self._yakusou}[SelectBox.selectedItem]  # 一時的なTrueから、対応するコルーチンへ置き換え
             command2 = self.monster.choice(self._attack, self._runaway, self._yakusou)
             for it in command(g_player, self.monster):  # コルーチン(ジェネレーター)の連続呼び出し
                 self.textbox = TextBox(it, self.textbox.text0)
@@ -465,8 +464,8 @@ class Battle(State):
             if g_player.hp <= 0:
                 yield TextBox(f"\n{g_player.name}はしんでしまった！🔻", self.textbox.text0)
                 yield Title()
-        items = "、".join(self.monster.items)+"、" if self.monster.items else ""  # ドロップ品
-        self.textbox = TextBox(f"\n{self.monster.name}をたおした！🔻\n{self.monster.gold}ゴールドと、{items}{self.monster.experience}のけいけんちをえた！🔻", self.textbox.text0)
+        drops = "、".join(self.monster.items)+"、" if self.monster.items else ""
+        self.textbox = TextBox(f"\n{self.monster.name}をたおした！🔻\n{self.monster.gold}ゴールドと、{drops}{self.monster.experience}のけいけんちをえた！🔻", self.textbox.text0)
         yield
         g_player.items += self.monster.items
         g_player.gold += self.monster.gold
@@ -481,6 +480,7 @@ class Battle(State):
     def draw(self):
         self.original_state.draw()
         pyxel.rect(32+self.offset[0], 32+self.offset[1], 64, 64, 0)  # 背景
+        pyxel.rectb(32+self.offset[0], 32+self.offset[1], 64, 64, 7)  # 背景
         draw_playerstatus()  # 下になるので再度描画
         if self.textbox:
             self.textbox.draw_just()
@@ -493,12 +493,12 @@ class Battle(State):
         pyxel.play(3, 16)
         if offence == g_player:
             for self.offset in Shake:
-                yield
+                yield ""
         else:
             for self.original_state.fdraw_poison in (True, False, True, False, True, False, True, False, True, False, ):
-                yield
+                yield ""
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         a = max([v for k, v in (("どうのけん", 4),) if k in offence.items] + [0])
         v = 3 + random.randrange(3) + a
         deffence.hp = max(deffence.hp-v, 0)
@@ -508,15 +508,15 @@ class Battle(State):
         yield f"\n{offence.name}は逃げ出した！"
         pyxel.play(3, 9)
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         self.releaseback()
-        yield
+        yield ""
 
     def _yakusou(self, offence, _):
         yield f"\n{offence.name}はやくそうをつかった！"
         pyxel.play(3, 17)
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         v = 5 + random.randrange(3)
         offence.hp = min(offence.hp + v, offence.maxhp)
         offence.items.remove("やくそう")
@@ -526,7 +526,7 @@ class Battle(State):
         yield f"\n{offence.name}はヒールをとなえた！"
         pyxel.play(3, 17)
         while pyxel.play_pos(3) != -1:
-            yield
+            yield ""
         v = 5 + random.randrange(3)
         offence.hp = min(offence.hp + v, offence.maxhp)
         offence.mp -= 2
