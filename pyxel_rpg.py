@@ -364,6 +364,18 @@ class RandomWalker(NPC):  # 人物のベース
     def draw(self, ox, oy): super().draw(ox+self.sx, oy+self.sy)
 
 
+class QuizBoy(RandomWalker):
+    def __init__(self, x, y, chip, text, choices, answer):
+        super().__init__(x, y, chip, text)
+        self.choices, self.answer = choices, answer
+
+    def _react(self):
+        yield self.text_or_callable
+        s = SelectBox(SelectBox.YesNoParameters[0], SelectBox.YesNoParameters[1], self.choices)
+        yield
+        yield "\nせいかい！\nおめでとう🔻" if s.index == self.answer else "\nざんねん！\nまたちょうせんしてね🔻"
+
+
 class Chest(NPC):
     def __init__(self, x, y, item):
         super().__init__(x, y, 42, "")
@@ -646,7 +658,7 @@ class Castle(Field):
             InnDummy(28, 14, 7),
             Door(30, 5),
             RandomWalker(13, 2, 198, "みなみにゆけば、まちとダンジョンがある。"),
-            RandomWalker(15, 5, 196, "青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻"),
+            QuizBoy(15, 5, 196, "『ななころびやおき』、『いっせきにちょう』、『さんかんしおん』。\nでてくるすうじをたすといくつ？", ("２０", "２５", "３０"), 1),
             RandomWalker(26, 13, 200, "そこのたからばこにはさわってはいけない。ちゅうこくしたぞ🔻"),
             NPC(30, 11, 1022, lambda: Battle(Mimic())), ]
     Music = 2
@@ -686,8 +698,7 @@ class Villege(Field):
             InnDummy(37, 19, 10),
             RandomWalker(33, 2, 198, "あおはあいよりいでてあいよりあおし。🔻\nひらがなのほうがいいかな？🔻"),
             RandomWalker(35, 5, 196, "青は藍より出でて藍より青し。🔻\n漢字も使えるよ。🔻"),
-            RandomWalker(36, 13, 200, "ここはぼうけんしゃのまち。\nちかくのダンジョンにちょうせんするひとびとがあつまる。🔻"),
-            ]
+            RandomWalker(36, 13, 200, "ここはぼうけんしゃのまち。\nちかくのダンジョンにちょうせんするひとびとがあつまる。🔻"), ]
     Music = 2
 
 
@@ -697,8 +708,7 @@ class Dungeon(Field):
         self.x, self.y = x, y
         self.traps = ((11, 26, lambda: Blackout(lambda: Field(4, 29))),)
     MapID, MapLeft, MapTop, MapRight, MapBottom, BGColor = 1, 0, 24, 32, 56, 0
-    NPCs = [
-        NPC(7, 54, 1022, lambda: Battle(Mimic())), ]
+    NPCs = [NPC(7, 54, 1022, lambda: Battle(Mimic())), ]
     Music = 2
 
 
