@@ -47,7 +47,7 @@ class BDF:
 
 Font1 = BDF("./assets/misaki_gothic_2nd.bdf")  # 注意:ほかの多くのbdfフォントファイルはutf-8への変換が必要だった
 Font1.chars[48]['glyph'][3] = 'A'  # 0の中の点を無くす
-# Font1.fx, Font1.fy = 2, 3  # 外から調整できる
+Font1.fx, Font1.fy = 1, 2  # 外から調整できる
 g_offset_x, g_offset_y = 0, 0
 
 
@@ -135,8 +135,8 @@ class TextBox(State):
         self.speed, self.sounds = TextBox.Speed, {"Step": 2, "Go": 1}
         self.sy = 0
     Speed = 3
-    Lines, Len = 4, 14
-    OX, OY = 10, 91
+    Lines, Len = 4, 18
+    OX, OY = 40, 91
     W, _H = Font1.box("あ"*Len)
     H = _H * Lines
 
@@ -604,7 +604,7 @@ g_player = Charactor("ああああ", 13, 2, 13, 2, [], [], 120, 0, 7)
 
 def draw_playerstatus():
     doku = "どく" if g_player.doku else ""
-    draw_frameC(8, 8, 48, 32)
+    draw_frameC(8, 8, 48+6, 32+12)
     draw_textC(8, 8, f"{g_player.name:　<4} L{level(g_player.experience): 2}\nＨＰ {g_player.hp: 3}/{g_player.maxhp: 3}\nＭＰ {g_player.mp: 3}/{g_player.maxmp: 3}\nＧ {g_player.gold: 5}{doku}")
 
 
@@ -759,7 +759,7 @@ def load():
         globals()[cls](data["field"]["x"], data["field"]["y"])  # Field派生物の__init__を揃える必要がある。
 
 
-pyxel.init(128, 128, caption="An RPG Sample")
+pyxel.init(240, 136, caption="An RPG Sample")
 pyxel.load("./assets/pyxel_rpg.pyxres")
 Title()  # pyxel.initより後ろに書く
 pyxel.run(lambda: g_state.update(), lambda: g_state.draw())
